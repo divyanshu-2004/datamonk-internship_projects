@@ -1,71 +1,58 @@
-# Reflect on This – Linux Permissions
+# 01 – Linux Permissions: Reflection + Secure Shared Project
 
-This document contains reflections on the security and practical applications of Linux file and directory permissions.
+## Reflect on This
 
----
-
-## 1. File vs. Directory Permissions  
-The **execute (x)** permission has different meanings depending on whether it is applied to a file or a directory:  
-
-- **For files**: The execute permission allows the file to be run as a program or script. Without it, the file can be read or written (depending on other permissions), but it cannot be executed.  
-- **For directories**: The execute permission allows a user to **enter and navigate** inside the directory. Without execute permission, even if you have read permission on the directory, you cannot list or access files inside it.  
-
-👉 This makes execute essential for directories because without it, you can’t move into the directory or access its contents, even if you know the filenames.
+### 1) File vs. Directory Execute (x)
+- **On a file**: `x` means “allow this binary/script to run.”
+- **On a directory**: `x` means **traverse**—you may enter the directory and access entries by name.  
+  You can’t `cd` into a directory or open files **inside** it without directory `x`, even if those files are world-readable. This prevents someone from walking into locations they shouldn’t, while still allowing read access where traversal is permitted.
 
 ---
 
-## 2. The 777 Risk  
-Granting `777` permissions means **any user** on the system can read, write, and execute the file or directory.  
-
-- **Scenario on a web server:**  
-  Suppose a PHP configuration file (`config.php`) that stores database credentials is given `777` permissions.  
-  - An attacker could upload a malicious PHP file to the server.  
-  - Since the directory and file are world-writable, the attacker could modify `config.php` to execute arbitrary commands.  
-  - This could lead to full compromise of the database and possibly the entire website/server.  
-
-👉 Thus, `777` should be avoided because it removes all security boundaries.
+### 2) The 777 Risk (web server scenario)
+Imagine a PHP web app where `uploads/` contains `avatar.php` with **`777`**:
+- An attacker uploads or edits `avatar.php` to contain malicious PHP (web shell).
+- Because it’s `rwxrwxrwx`, the server and any user can write/execute it.
+- The attacker then browses to `https://site/uploads/avatar.php`, executes arbitrary commands (e.g., reading DB creds, writing new files, defacing the site, pivoting to the server OS).  
+**One over-permissive file** becomes a remote code execution foothold.
 
 ---
 
-## 3. Symbolic vs. Octal `chmod`  
-Imagine a file with the following permissions:  
--rwx-w-r--
+### 3) Symbolic vs. Octal `chmod`
+Given `-rwx-w-r--` and you only want to **add group execute**:
+- With **symbolic**: `chmod g+x a_file.txt` precisely adds one bit and **doesn’t touch** anything else.
+- With **octal**, you must first decode the current mode, then re-encode it correctly; it’s easy to flip unintended bits.  
+Symbolic changes are **safer and less error-prone** for targeted adjustments.
 
+---
 
-Now you only want to **add group execute permission** without changing any other permissions.  
+### 4) `sudo` + typoed `rm -rf`
+You intended: `rm -rf ./temp_files/`  
+You typed: `sudo rm -rf / temp_files/` (notice the space after `/`)
+- That command attempts to recursively delete **the filesystem root `/`** (catastrophic), then `temp_files/`.
+- With `sudo`, you bypass normal protections, so you can nuke critical system files, break the OS, and lose data.  
+This is why you use `sudo` sparingly and double-check destructive commands.
 
-- If you try using **octal mode**, you need to recalculate the exact numeric representation for the updated permissions, which can be error-prone and could accidentally overwrite other permissions.  
-- If you use **symbolic mode**:  
+---
+
+### 5) Ownership for Collaboration
+`sudo chown -R :developers project/` sets the **group** of the project to `developers`. Then you grant `g+rwX` on directories/files:
+- **Principle of least privilege**: limit access to just the team.
+- **Scalability**: add/remove teammates by editing group membership, not by changing file perms.
+- **Auditable & clean**: keeps “others” at `---`, reducing accidental exposure.
+
+---
+
+## Project: Secure Shared Project Directory
+
+**Goal**: Owner has full control, a specific group can contribute, **others have no access**.
+
+> ⚠️ Note on correctness: Group members **must have `x` on directories** to enter and create files. A blanket `760` (group no `x`) on directories will **block** teammates from `cd` and from creating files. Below is a corrected, secure setup that satisfies the goal **and** the test steps.
+
+### Step 1: Create a Teammate User
 
 ```bash
-chmod g+x a_file.txt
+# Create teammate
+sudo useradd -m dev_user
+sudo passwd dev_user
 ```
-
-This safely adds execute permission for the group only, without touching other bits.
-
-👉 That’s why symbolic mode is safer and better for making small, precise permission changes.
-
-# 4. sudo’s Power
-
-Suppose you meant to run:
-```bash
-rm -rf ./temp_files/
-```
-
-But instead you accidentally typed:
-```bash
-sudo rm -rf / temp_files/
-```
-
-Here’s what happens:
-
- - sudo elevates the command to superuser privileges, bypassing normal safety checks.
-
-The command is interpreted as:
-
-- rm -rf / → recursively deletes everything from the root directory /, effectively wiping out the entire operating system.
-
-- temp_files/ would then be treated as a separate target, but by that point the system is already destroyed.
-
-👉 With sudo, this mistake becomes catastrophic because the command has the power to delete all system files and data irreversibly.
-
