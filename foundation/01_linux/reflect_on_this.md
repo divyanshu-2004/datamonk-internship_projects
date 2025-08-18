@@ -1,58 +1,60 @@
-# 01 – Linux Permissions: Reflection + Secure Shared Project
+# Reflect on This – Linux Software and Data Management
 
-## Reflect on This
-
-### 1) File vs. Directory Execute (x)
-- **On a file**: `x` means “allow this binary/script to run.”
-- **On a directory**: `x` means **traverse**—you may enter the directory and access entries by name.  
-  You can’t `cd` into a directory or open files **inside** it without directory `x`, even if those files are world-readable. This prevents someone from walking into locations they shouldn’t, while still allowing read access where traversal is permitted.
+This document contains my reflections and answers to the questions about package managers, search tools, internet utilities, and piping in Linux.
 
 ---
 
-### 2) The 777 Risk (web server scenario)
-Imagine a PHP web app where `uploads/` contains `avatar.php` with **`777`**:
-- An attacker uploads or edits `avatar.php` to contain malicious PHP (web shell).
-- Because it’s `rwxrwxrwx`, the server and any user can write/execute it.
-- The attacker then browses to `https://site/uploads/avatar.php`, executes arbitrary commands (e.g., reading DB creds, writing new files, defacing the site, pivoting to the server OS).  
-**One over-permissive file** becomes a remote code execution foothold.
+## 1. Package Managers (APT vs. Snap)
+Linux provides multiple ways to install software, including **APT** (Advanced Package Tool) and **Snap**.
+
+- **Why Snap instead of APT?**
+  - Snap packages are containerized and include all dependencies, which means the application will run consistently across different Linux distributions.
+  - Developers may prefer Snap if they want to ship the *latest version* of software without waiting for distro maintainers to update APT repositories.
+
+- **Trade-offs:**
+  - **Application Startup Time:** Snap apps often start slower because of their containerization overhead.
+  - **Disk Space Usage:** Snap apps can consume more storage since each package bundles its dependencies instead of sharing system-wide libraries.
+  - **Automatic Updates:** Snap provides automatic background updates, which is convenient but may introduce changes without notice.
 
 ---
 
-### 3) Symbolic vs. Octal `chmod`
-Given `-rwx-w-r--` and you only want to **add group execute**:
-- With **symbolic**: `chmod g+x a_file.txt` precisely adds one bit and **doesn’t touch** anything else.
-- With **octal**, you must first decode the current mode, then re-encode it correctly; it’s easy to flip unintended bits.  
-Symbolic changes are **safer and less error-prone** for targeted adjustments.
+## 2. Search Tools (grep vs. ripgrep)
+- **grep:** A traditional and powerful tool for searching text, available by default on almost all Linux systems.
+- **ripgrep (rg):** A modern alternative optimized for speed and large codebases.
+
+- **Why rg is better for large projects:**
+  - **Performance:** `rg` is faster than `grep` because it uses Rust’s regex engine and smarter search algorithms.
+  - **Ignores unnecessary files:** By default, `rg` respects `.gitignore`, `.ignore`, and `.rgignore`, skipping irrelevant files like build artifacts or dependencies.
+  - **Recursive search:** Automatically searches directories recursively without needing `-r`.
+
+This makes `rg` the preferred tool for developers working on large repositories.
 
 ---
 
-### 4) `sudo` + typoed `rm -rf`
-You intended: `rm -rf ./temp_files/`  
-You typed: `sudo rm -rf / temp_files/` (notice the space after `/`)
-- That command attempts to recursively delete **the filesystem root `/`** (catastrophic), then `temp_files/`.
-- With `sudo`, you bypass normal protections, so you can nuke critical system files, break the OS, and lose data.  
-This is why you use `sudo` sparingly and double-check destructive commands.
+## 3. Internet Utilities (curl vs. wget)
+Both `curl` and `wget` are command-line tools for transferring data over the internet, but they are designed for different primary use cases.
+
+- **When curl is the only correct choice:**
+  - Example: Making an **HTTP POST request with custom headers** (e.g., sending JSON data to a REST API).
+  - `curl -X POST -H "Content-Type: application/json" -d '{"key":"value"}' https://api.example.com/data`
+
+- **When wget is superior:**
+  - Example: **Downloading entire websites or recursively fetching files** from an FTP/HTTP server.
+  - `wget -r -np -k https://example.com/`
+
+- **Core design difference:**
+  - `curl` is designed for **data transfer and interaction with APIs** (single requests, flexible protocols).
+  - `wget` is designed for **file downloading and mirroring**, especially recursive downloads.
 
 ---
 
-### 5) Ownership for Collaboration
-`sudo chown -R :developers project/` sets the **group** of the project to `developers`. Then you grant `g+rwX` on directories/files:
-- **Principle of least privilege**: limit access to just the team.
-- **Scalability**: add/remove teammates by editing group membership, not by changing file perms.
-- **Auditable & clean**: keeps “others” at `---`, reducing accidental exposure.
+## 4. The Power of Piping (curl + jq)
+Piping allows combining commands to process data in stages. One practical developer use case is fetching GitHub repository data.
 
----
+- **Scenario:**
+  - Fetch the list of a user’s public repositories and display only the repository name and main programming language.
 
-## Project: Secure Shared Project Directory
+- **Command:**
+  ```bash
+  curl -s https://api.github.com/users/<your-username>/repos | jq '.[] | {name: .name, language: .language}'
 
-**Goal**: Owner has full control, a specific group can contribute, **others have no access**.
-
-> ⚠️ Note on correctness: Group members **must have `x` on directories** to enter and create files. A blanket `760` (group no `x`) on directories will **block** teammates from `cd` and from creating files. Below is a corrected, secure setup that satisfies the goal **and** the test steps.
-
-### Step 1: Create a Teammate User
-
-```bash
-# Create teammate
-sudo useradd -m dev_user
-sudo passwd dev_user
-```
